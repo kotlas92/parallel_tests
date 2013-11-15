@@ -5,6 +5,7 @@ require 'parallel_tests'
 module ParallelTests
   class CLI
     def run(argv)
+      binding.pry
       options = parse_options!(argv)
 
       num_processes = ParallelTests.determine_number_of_processes(options[:count])
@@ -31,7 +32,7 @@ module ParallelTests
 
     def run_tests_in_parallel(num_processes, options)
       test_results = nil
-
+      binding.pry
       report_time_taken do
         groups = @runner.tests_in_groups(options[:files], num_processes, options)
         report_number_of_tests(groups)

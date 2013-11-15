@@ -26,6 +26,31 @@ module ParallelTests
         groups.map!{|g| g[:items].sort }
       end
 
+      def by_weight(tests, num_groups, options)
+        features_with_steps = build_features_with_steps(tests, options)
+        in_even_groups_by_size(features_with_steps, num_groups)
+      end
+
+      def in_even_groups_by_weight(items_with_sizes, num_groups, options = {})
+        groups = Array.new(num_groups) { {:items => [], :size => 0} }
+        binding.pry
+        # add all files that should run in a single process to one group
+        (options[:single_process] || []).each do |pattern|
+          matched, items_with_sizes = items_with_sizes.partition { |item, size| item =~ pattern }
+          matched.each { |item, size| add_to_group(groups.first, item, size) }
+        end
+        binding.pry
+        groups_to_fill = (options[:isolate] ? groups[1..-1] : groups)
+        binding.pry
+        # add all other files
+        largest_first(items_with_sizes).each do |item, size|
+          smallest = smallest_group(groups_to_fill)
+          add_to_group(smallest, item, size)
+        end
+        binding.pry
+        groups.map!{|g| g[:items].sort }
+      end
+
       private
 
       def largest_first(files)

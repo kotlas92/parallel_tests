@@ -7,6 +7,7 @@ module ParallelTests
 
       class << self
         def run_tests(test_files, process_number, num_processes, options)
+          binding.pry
           sanitized_test_files = test_files.map { |val| Shellwords.escape(val) }
           options = options.merge(:env => {"AUTOTEST" => "1"}) if $stdout.tty? # display color when we are in a terminal
           cmd = [
@@ -67,8 +68,11 @@ module ParallelTests
         end
 
         def tests_in_groups(tests, num_groups, options={})
+          binding.pry
           if options[:group_by] == :steps
             Grouper.by_steps(find_tests(tests, options), num_groups, options)
+          elsif options[:group_by] == :weight
+            Grouper.by_weight(find_tests(tests, options), num_groups, options)
           else
             super
           end
