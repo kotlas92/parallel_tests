@@ -4,6 +4,7 @@ require 'parallel_tests'
 
 module ParallelTests
   class CLI
+    MAX_DURATION_DIFF = 50
     def run(argv)
       options = parse_options!(argv)
 
@@ -19,11 +20,14 @@ module ParallelTests
 
     private
 
-    def execute_in_parallel(items, num_processes, options)
+    def execute_in_parallel(groups, num_processes, options)
       Tempfile.open 'parallel_tests-lock' do |lock|
-        return Parallel.map(items, :in_threads => num_processes) do |item|
-          result = yield(item)
+        return Parallel.map(groups, :in_threads => num_processes) do |group|
+          start_time = Time.now
+          result = yield(group)
           report_output(result, lock) if options[:serialize_stdout]
+          result[:duration] = Time.now - start_time
+          result[:items] = group
           result
         end
       end
@@ -42,6 +46,8 @@ module ParallelTests
 
         report_results(test_results)
       end
+
+      report_workers_results(test_results)
 
       abort final_fail_message if any_test_failed?(test_results)
     end
@@ -181,6 +187,48 @@ TEXT
 
     def use_colors?
       $stdout.tty?
+    end
+
+    def report_workers_results(test_results)
+      $stdout.puts '='*20
+      $stdout.puts 'Time tracking'
+
+      test_results.each_with_index do |test_result, index|
+        $stdout.puts "Worker number #{index}: #{test_result[:duration].to_i} seconds with expected_duration #{expected_group_duration(test_result[:items])}"
+        if (test_result[:duration].to_i - expected_group_duration(test_result[:items]).to_i).abs > MAX_DURATION_DIFF
+          test_result[:items].each do |item|
+            $stdout.puts "  - #{item} duration #{feature_duration(item)}s with expected #{expected_feature_duration(item)}s"
+          end
+        end
+      end
+
+      $stdout.puts '='*20
+      $stdout.flush
+    end
+
+    def expected_feature_duration(filename)
+      expected_and_real_feature_duration(filename).first
+    end
+
+    def feature_duration(filename)
+      expected_and_real_feature_duration(filename).last
+    end
+
+    def expected_group_duration(items)
+      duration = 0
+      items.each{|item| duration += expected_feature_duration(item)}
+      duration
+    end
+
+    def expected_and_real_feature_duration(filename)
+      expected = `git diff #{filename}`[/(?<=-#weight )[0-9]+/].to_i
+      file_content = []
+      File.open(filename).read.each_line{|line| file_content << line}
+      real = file_content.first[/(?<=weight )[0-9]+/].to_i
+      if expected.zero?
+        expected = real
+      end
+      [expected, real]
     end
   end
 end

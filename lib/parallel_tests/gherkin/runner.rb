@@ -69,6 +69,8 @@ module ParallelTests
         def tests_in_groups(tests, num_groups, options={})
           if options[:group_by] == :steps
             Grouper.by_steps(find_tests(tests, options), num_groups, options)
+          elsif options[:group_by] == :weight
+            Grouper.by_weight(find_tests(tests, options), num_groups, options)
           else
             super
           end
