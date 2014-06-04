@@ -190,20 +190,18 @@ TEXT
     end
 
     def report_workers_results(test_results)
-      $stdout.puts '='*20
-      $stdout.puts 'Time tracking'
+      File.open('test-artifacts/parallel-tests-profile.log', 'w') do |f|
+        f.puts "Time tracking\n"
 
-      test_results.each_with_index do |test_result, index|
-        $stdout.puts "Worker number #{index}: #{test_result[:duration].to_i} seconds with expected_duration #{expected_group_duration(test_result[:items])}"
-        if (test_result[:duration].to_i - expected_group_duration(test_result[:items]).to_i).abs > MAX_DURATION_DIFF
-          test_result[:items].each do |item|
-            $stdout.puts "  - #{item} duration #{feature_duration(item)}s with expected #{expected_feature_duration(item)}s"
+        test_results.each_with_index do |test_result, index|
+          f.puts "Worker number #{index}: #{test_result[:duration].to_i} seconds with expected_duration #{expected_group_duration(test_result[:items])}"
+          if (test_result[:duration].to_i - expected_group_duration(test_result[:items]).to_i).abs > MAX_DURATION_DIFF
+            test_result[:items].each do |item|
+              f.puts "  - #{item} duration #{feature_duration(item)}s with expected #{expected_feature_duration(item)}s"
+            end
           end
         end
       end
-
-      $stdout.puts '='*20
-      $stdout.flush
     end
 
     def expected_feature_duration(filename)
