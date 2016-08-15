@@ -1,12 +1,12 @@
-require "rubygems"
 require "parallel"
 require "parallel_tests/railtie" if defined? Rails::Railtie
 require "rbconfig"
 
 module ParallelTests
+  WINDOWS = (RbConfig::CONFIG['host_os'] =~ /cygwin|mswin|mingw|bccwin|wince|emx/)
   GREP_PROCESSES_COMMAND = \
-  if RbConfig::CONFIG['host_os'] =~ /win32/
-    "wmic process get commandline | findstr TEST_ENV_NUMBER 2>&1"
+  if WINDOWS
+    "wmic process get commandline | findstr TEST_ENV_NUMBER | find /c \"TEST_ENV_NUMBER=\" 2>&1"
   else
     "ps -ef | grep [T]EST_ENV_NUMBER= 2>&1"
   end
@@ -33,7 +33,7 @@ module ParallelTests
 
       until !File.directory?(current) || current == previous
         filename = File.join(current, "Gemfile")
-        return true if File.exists?(filename)
+        return true if File.exist?(filename)
         current, previous = File.expand_path("..", current), current
       end
 
@@ -41,7 +41,15 @@ module ParallelTests
     end
 
     def first_process?
-      !ENV["TEST_ENV_NUMBER"] || ENV["TEST_ENV_NUMBER"].to_i == 0
+      ENV["TEST_ENV_NUMBER"].to_i <= 1
+    end
+
+    def parent_pid
+      if WINDOWS
+        `wmic process where (processid=#{Process.pid}) get parentprocessid`
+      else
+        `ps -o ppid= -p#{`ps -o ppid= -p#{Process.pid}`}` #the true parent is one layer up.
+      end.to_i
     end
 
     def wait_for_other_processes_to_finish
@@ -63,6 +71,12 @@ module ParallelTests
       else
         Time.now
       end
+    end
+
+    def delta
+      before = now.to_f
+      yield
+      now.to_f - before
     end
   end
 end

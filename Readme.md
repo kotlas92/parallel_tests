@@ -1,28 +1,28 @@
-Speedup Test::Unit + RSpec + Cucumber by running parallel on multiple CPUs (or cores).<br/>
-ParallelTests splits tests into even groups(by number of tests or runtime) and runs each group in a single process with its own database.
+# parallel_tests
 
-[upgrading from 0.6 ?](https://github.com/grosser/parallel_tests/wiki/Upgrading-0.6.x-to-0.7.x)
+[![Gem Version](https://badge.fury.io/rb/parallel_tests.svg)](https://rubygems.org/gems/parallel_tests)
+[![Build Status](https://travis-ci.org/grosser/parallel_tests.svg)](https://travis-ci.org/grosser/parallel_tests/builds)
+
+Speedup Test::Unit + RSpec + Cucumber + Spinach by running parallel on multiple CPU cores.<br/>
+ParallelTests splits tests into even groups (by number of lines or runtime) and runs each group in a single process with its own database.
 
 Setup for Rails
 ===============
 [RailsCasts episode #413 Fast Tests](http://railscasts.com/episodes/413-fast-tests)
-[still using Rails 2?](https://github.com/grosser/parallel_tests/blob/master/ReadmeRails2.md)
 
 ### Install
-If you use RSpec: ensure you have >= 2.4
-
-As gem
+`Gemfile`:
 
 ```ruby
-# add to Gemfile
-gem "parallel_tests", :group => :development
+gem 'parallel_tests', group: [:development, :test]
 ```
 
 ### Add to `config/database.yml`
+
 ParallelTests uses 1 database per test-process.
 <table>
   <tr><td>Process number</td><td>1</td><td>2</td><td>3</td></tr>
-  <tr><td>`ENV['TEST_ENV_NUMBER']`</td><td>''</td><td>'2'</td><td>'3'</td></tr>
+  <tr><td>ENV['TEST_ENV_NUMBER']</td><td>''</td><td>'2'</td><td>'3'</td></tr>
 </table>
 
 ```yaml
@@ -35,6 +35,9 @@ test:
 
 ### Copy development schema (repeat after migrations)
     rake parallel:prepare
+
+### Setup environment from scratch (create db and loads schema, useful for CI)
+    rake parallel:setup
 
 ### Run!
     rake parallel:test          # Test::Unit
@@ -68,6 +71,8 @@ Test by pattern (e.g. use one integration server per subfolder / see if you brok
 RAILS_ENV=test parallel_test -e "rake my:custom:task"
 # or
 rake parallel:rake[my:custom:task]
+# limited parallelism
+rake parallel:rake[my:custom:task,2]
 ```
 
 
@@ -75,7 +80,7 @@ Running things once
 ===================
 
 ```Ruby
-# effected by race-condition: first process may boot slower the second
+# affected by race-condition: first process may boot slower the second
 # either sleep a bit or use a lock for example File.lock
 ParallelTests.first_process? ? do_something : sleep(1)
 
@@ -93,36 +98,41 @@ Loggers
 Even test group run-times
 -------------------------
 
+### RSpec
+
 Add the `RuntimeLogger` to log how long each test takes to run.
 This log file will be loaded on the next test run, and the tests will be grouped
 so that each process should finish around the same time.
 
 Rspec: Add to your `.rspec_parallel` (or `.rspec`) :
 
-    If installed as plugin: -I vendor/plugins/parallel_tests/lib
     --format progress
     --format ParallelTests::RSpec::RuntimeLogger --out tmp/parallel_runtime_rspec.log
 
-Test::Unit:  Add to your `test_helper.rb`:
+### Test::Unit & Minitest 4/5
+
+Add to your `test_helper.rb`:
 ```ruby
-require 'parallel_tests/test/runtime_logger'
+require 'parallel_tests/test/runtime_logger' if ENV['RECORD_RUNTIME']
 ```
+
+results will be logged to tmp/parallel_runtime_test.log when `RECORD_RUNTIME` is set,
+so it is not always required or overwritten.
 
 RSpec: SummaryLogger
 --------------------
 
-This logger logs the test output without the different processes overwriting each other.
+Log the test output without the different processes overwriting each other.
 
 Add the following to your `.rspec_parallel` (or `.rspec`) :
 
-    If installed as plugin: -I vendor/plugins/parallel_tests/lib
     --format progress
     --format ParallelTests::RSpec::SummaryLogger --out tmp/spec_summary.log
 
 RSpec: FailuresLogger
 -----------------------
 
-This logger produces pasteable command-line snippets for each failed example.
+Produce pasteable command-line snippets for each failed example.
 
 E.g.
 
@@ -130,14 +140,13 @@ E.g.
 
 Add the following to your `.rspec_parallel` (or `.rspec`) :
 
-    If installed as plugin: -I vendor/plugins/parallel_tests/lib
     --format progress
     --format ParallelTests::RSpec::FailuresLogger --out tmp/failing_specs.log
 
 Cucumber: FailuresLogger
 -----------------------
 
-This logger logs failed cucumber scenarios to the specified file. The filename can be passed to cucumber, prefixed with '@' to rerun failures.
+Log failed cucumber scenarios to the specified file. The filename can be passed to cucumber, prefixed with '@' to rerun failures.
 
 Usage:
 
@@ -151,10 +160,11 @@ Note if your `cucumber.yml` default profile uses `<%= std_opts %>` you may need 
 
 To rerun failures:
 
-	cucumber @tmp/cucumber_failures.log
+    cucumber @tmp/cucumber_failures.log
 
 Setup for non-rails
 ===================
+
     gem install parallel_tests
     # go to your project dir
     parallel_test test/
@@ -162,34 +172,51 @@ Setup for non-rails
     parallel_cucumber features/
     parallel_spinach features/
 
- - use ENV['TEST_ENV_NUMBER'] inside your tests to select separate db/memcache/etc.
+ - use `ENV['TEST_ENV_NUMBER']` inside your tests to select separate db/memcache/etc.
  - Only run selected files & folders:
 
-    parallel_test test/bar test/baz/foo_text.rb
+    `parallel_test test/bar test/baz/foo_text.rb`
+
+ - Pass test-options and files via `--`:
+
+    `parallel_test -- -t acceptance -f progress -- spec/foo_spec.rb spec/acceptance`
 
 Options are:
+<!-- copy output from bundle exec ./bin/parallel_test -h -->
 
     -n [PROCESSES]                   How many processes to use, default: available CPUs
-    -p, --pattern [PATTERN]          run tests matching this pattern
+    -p, --pattern [PATTERN]          run tests matching this regex pattern
         --group-by [TYPE]            group tests by:
           found - order of finding files
-          steps - number of cucumber steps
-          default - runtime or filesize
+          steps - number of cucumber/spinach steps
+          scenarios - individual cucumber scenarios
+          filesize - by size of the file
+          runtime - info from runtime log
+          default - runtime when runtime log is filled otherwise filesize
     -m, --multiply-processes [FLOAT] use given number as a multiplier of processes to run
     -s, --single [PATTERN]           Run all matching files in the same process
     -i, --isolate                    Do not run any other tests in the group used by --single(-s)
-    -e, --exec [COMMAND]             execute this code parallel and with ENV['TEST_ENV_NUM']
+        --only-group INT[, INT]
+    -e, --exec [COMMAND]             execute this code parallel and with ENV['TEST_ENV_NUMBER']
     -o, --test-options '[OPTIONS]'   execute test commands with those options
     -t, --type [TYPE]                test(default) / rspec / cucumber / spinach
+        --suffix [PATTERN]           override built in test file pattern (should match suffix):
+          '_spec.rb$' - matches rspec files
+          '_(test|spec).rb$' - matches test or spec files
         --serialize-stdout           Serialize stdout output, nothing will be written until everything is done
+        --combine-stderr             Combine stderr into stdout, useful in conjunction with --serialize-stdout
         --non-parallel               execute same commands but do not in parallel, needs --exec
         --no-symlinks                Do not traverse symbolic links to find test files
         --ignore-tags [PATTERN]      When counting steps ignore scenarios with tags that match this pattern
         --nice                       execute test commands with low priority.
+        --runtime-log [PATH]         Location of previously recorded test runtimes
+        --allowed-missing            Allowed percentage of missing runtimes (default = 50)
+        --unknown-runtime [FLOAT]    Use given number as unknown runtime (otherwise use average time)
+        --verbose                    Print more output
     -v, --version                    Show Version
     -h, --help                       Show this.
 
-You can run any kind of code in parallel with -e / --execute
+You can run any kind of code in parallel with -e / --exec
 
     parallel_test -n 5 -e 'ruby -e "puts %[hello from process #{ENV[:TEST_ENV_NUMBER.to_s].inspect}]"'
     hello from process "2"
@@ -206,37 +233,54 @@ You can run any kind of code in parallel with -e / --execute
 
 TIPS
 ====
- - [RSpec] add a `.rspec_parallel` to use different options, e.g. **no --drb**
- - [RSpec] delete `script/spec`
- - [[Spork](https://github.com/sporkrb/spork)] does not work with parallel_tests
- - [RSpec] remove --loadby from you spec/*.opts
- - [RSpec] Instantly see failures (instead of just a red F) with [rspec-instafail](https://github.com/grosser/rspec-instafail)
- - [Bundler] if you have a `Gemfile` then `bundle exec` will be used to run tests
- - [Cucumber] add a `parallel: foo` profile to your `config/cucumber.yml` and it will be used to run parallel tests
- - [Cucumber] Pass in cucumber options by not giving the options an identifier ex: `rake parallel:features[,,'cucumber_opts']`
+
+### RSpec
+
+ - Add a `.rspec_parallel` to use different options, e.g. **no --drb**
+ - Remove `--loadby` from `.rspec`
+ - Instantly see failures (instead of just a red F) with [rspec-instafail](https://github.com/grosser/rspec-instafail)
+ - Use [rspec-retry](https://github.com/NoRedInk/rspec-retry) (not rspec-rerun) to rerun failed tests.
+ - [JUnit formatter configuration](https://github.com/grosser/parallel_tests/wiki#with-rspec_junit_formatter----by-jgarber)
+
+### Cucumber
+
+ - Add a `parallel: foo` profile to your `config/cucumber.yml` and it will be used to run parallel tests
+ - [ReportBuilder](https://github.com/rajatthareja/ReportBuilder) can help with combining parallel test results
+   - Supports Cucumber 2.0+ and is actively maintained
+   - Combines many JSON files into a single file
+   - Builds a HTML report from JSON with support for debug msgs & embedded Base64 images.
+
+### General
+ - [SQL schema format] use :ruby schema format to get faster parallel:prepare`
+ - [ZSH] use quotes to use rake arguments `rake "parallel:prepare[3]"`
+ - [Memcached] use different namespaces<br/>
+   e.g. `config.cache_store = ..., namespace: "test_#{ENV['TEST_ENV_NUMBER']}"`
+ - Debug errors that only happen with multiple files using `--verbose` and [cleanser](https://github.com/grosser/cleanser)
+ - `export PARALLEL_TEST_PROCESSORS=13` to override default processor count
+ - Shell alias: `alias prspec='parallel_rspec -m 2 --'`
+ - [Spring] to use spring you have to [patch it](https://github.com/grosser/parallel_tests/wiki/Spring)
+ - `--first-is-1` will make the first environment be `1`, so you can test while running your full suite.<br/>
+   `export PARALLEL_TEST_FIRST_IS_1=true` will provide the same result
+ - [email_spec and/or action_mailer_cache_delivery](https://github.com/grosser/parallel_tests/wiki)
+ - [zeus-parallel_tests](https://github.com/sevos/zeus-parallel_tests)
+ - [Distributed parallel test (e.g. Travis Support)](https://github.com/grosser/parallel_tests/wiki/Distributed-Parallel-Tests-and-Travis-Support)
  - [Capybara setup](https://github.com/grosser/parallel_tests/wiki)
  - [Sphinx setup](https://github.com/grosser/parallel_tests/wiki)
  - [Capistrano setup](https://github.com/grosser/parallel_tests/wiki/Remotely-with-capistrano) let your tests run on a big box instead of your laptop
- - [SQL schema format] use :ruby schema format to get faster parallel:prepare`
- - `export PARALLEL_TEST_PROCESSORS=X` in your environment and parallel_tests will use this number of processors by default
- - [ZSH] use quotes to use rake arguments `rake "parallel:prepare[3]"`
- - [email_spec and/or action_mailer_cache_delivery](https://github.com/grosser/parallel_tests/wiki)
- - [Memcached] use different namespaces e.g. `config.cache_store = ..., :namespace => "test_#{ENV['TEST_ENV_NUMBER']}"`
- - [zeus-parallel_tests](https://github.com/sevos/zeus-parallel_tests)
+
+Contribute your own gotaches to the [Wiki](https://github.com/grosser/parallel_tests/wiki) or even better open a PR :)
 
 TODO
 ====
- - make tests consistently pass with `--order random` in .rspec
  - fix tests vs cucumber >= 1.2 `unknown option --format`
- - add integration tests for the rake tasks, maybe generate a rails project ...
  - add unit tests for cucumber runtime formatter
  - make windows compatible
 
 Authors
 ====
-inspired by [pivotal labs](http://pivotallabs.com/users/miked/blog/articles/849-parallelize-your-rspec-suite)
+inspired by [pivotal labs](https://blog.pivotal.io/labs/labs/parallelize-your-rspec-suite)
 
-### [Contributors](http://github.com/grosser/parallel_tests/contributors)
+### [Contributors](https://github.com/grosser/parallel_tests/contributors)
  - [Charles Finkel](http://charlesfinkel.com/)
  - [Indrek Juhkam](http://urgas.eu)
  - [Jason Morrison](http://jayunit.net)
@@ -291,8 +335,26 @@ inspired by [pivotal labs](http://pivotallabs.com/users/miked/blog/articles/849-
  - [sidfarkus](https://github.com/sidfarkus)
  - [Colin Harris](https://github.com/aberant)
  - [Wataru MIYAGUNI](https://github.com/gongo)
+ - [Brandon Turner](https://github.com/blt04)
+ - [Matt Hodgson](https://github.com/mhodgson)
+ - [bicarbon8](https://github.com/bicarbon8)
+ - [seichner](https://github.com/seichner)
+ - [Matt Southerden](https://github.com/mattsoutherden)
+ - [Stanislaw Wozniak](https://github.com/sponte)
+ - [Dmitry Polushkin](https://github.com/dmitry)
+ - [Samer Masry](https://github.com/smasry)
+ - [Volodymyr Mykhailyk](https:/github.com/volodymyr-mykhailyk)
+ - [Mike Mueller](https://github.com/mmueller)
+ - [Aaron Jensen](https://github.com/aaronjensen)
+ - [Ed Slocomb](https://github.com/edslocomb)
+ - [Cezary Baginski](https://github.com/e2)
+ - [Marius Ioana](https://github.com/mariusioana)
+ - [Lukas Oberhuber](https://github.com/lukaso)
+ - [Ryan Zhang](https://github.com/ryanus)
+ - [Rhett Sutphin](https://github.com/rsutphin)
+ - [Doc Ritezel](https://github.com/ohrite)
+
 
 [Michael Grosser](http://grosser.it)<br/>
 michael@grosser.it<br/>
-License: MIT<br/>
-[![Build Status](https://travis-ci.org/grosser/parallel_tests.png)](https://travis-ci.org/grosser/parallel_tests)
+License: MIT

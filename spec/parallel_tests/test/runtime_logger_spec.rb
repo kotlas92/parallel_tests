@@ -1,90 +1,105 @@
 require 'spec_helper'
 
 describe ParallelTests::Test::RuntimeLogger do
-  describe :writing do
-    around do |example|
-      use_temporary_directory_for do
-        FileUtils.mkdir_p(File.dirname(log))
-        example.call
-      end
-    end
+  def sh(command)
+    result = `#{command} 2>&1`
+    raise "FAILED: #{result}" unless $?.success?
+  end
 
-    let(:log) { ParallelTests::Test::Runner.runtime_log }
+  def run_tests
+    sh "#{Bundler.root}/bin/parallel_test test -n 2"
+  end
 
-    it "overwrites the runtime_log file on first log invocation" do
-      class FakeTest
-      end
-      test = FakeTest.new
-      time = Time.now
-      File.open(log, 'w'){ |f| f.puts("FooBar") }
-      ParallelTests::Test::RuntimeLogger.send(:class_variable_set,:@@has_started, false)
-      ParallelTests::Test::RuntimeLogger.log(test, time, Time.at(time.to_f+2.00))
-      result = File.read(log)
-      result.should_not include('FooBar')
-      result.should include('test/fake_test.rb:2.00')
-    end
+  it "writes a correct log on test-unit" do
+    skip if RUBY_PLATFORM == "java" # just too slow ...
+    use_temporary_directory do
+      # setup simple structure
+      FileUtils.mkdir "test"
+      2.times do |i|
+        File.write("test/#{i}_test.rb", <<-RUBY)
+          require 'test/unit'
+          require 'parallel_tests/test/runtime_logger'
 
-    it "appends to the runtime_log file after first log invocation" do
-      class FakeTest
-      end
-      test = FakeTest.new
-      class OtherFakeTest
-      end
-      other_test = OtherFakeTest.new
+          class Foo#{i} < Test::Unit::TestCase
+            def test_foo
+              sleep 0.5
+              assert true
+            end
+          end
 
-      time = Time.now
-      File.open(log, 'w'){ |f| f.puts("FooBar") }
-      ParallelTests::Test::RuntimeLogger.send(:class_variable_set,:@@has_started, false)
-      ParallelTests::Test::RuntimeLogger.log(test, time, Time.at(time.to_f+2.00))
-      ParallelTests::Test::RuntimeLogger.log(other_test, time, Time.at(time.to_f+2.00))
-      result = File.read(log)
-      result.should_not include('FooBar')
-      result.should include('test/fake_test.rb:2.00')
-      result.should include('test/other_fake_test.rb:2.00')
+          class Bar#{i} < Test::Unit::TestCase
+            def test_foo
+              sleep 0.25
+              assert true
+            end
+          end
+        RUBY
+      end
+
+      run_tests
+
+      # log looking good ?
+      lines = File.read("tmp/parallel_runtime_test.log").split("\n").sort.map { |x|x .sub!(/\d$/, '') }
+      expect(lines).to eq([
+        "test/0_test.rb:0.7",
+        "test/1_test.rb:0.7",
+      ])
     end
   end
 
-  describe "formatting" do
-    def with_rails_defined
-      Object.const_set(:Rails, Module.new)
-      yield
-      Object.send(:remove_const, :Rails)
-    end
-
-    def call(*args)
-      ParallelTests::Test::RuntimeLogger.send(:message, *args)
-    end
-
-    it "formats results for simple test names" do
-      class FakeTest
+  # static directory with gems so it's fast on travis
+  it "writes a correct log on minitest-4" do
+    skip if RUBY_PLATFORM == "java" # just too slow ...
+    Dir.chdir(Bundler.root.join("spec/fixtures/minitest4")) do
+      Bundler.with_clean_env do
+        sh "bundle --local --quiet"
+        run_tests
       end
-      test = FakeTest.new
-      time = Time.now
-      call(test, time, Time.at(time.to_f+2.00)).should == 'test/fake_test.rb:2.00'
-    end
 
-    it "formats results for complex test names" do
-      class AVeryComplex
-        class FakeTest
-        end
-      end
-      test = AVeryComplex::FakeTest.new
-      time = Time.now
-      call(test, time, Time.at(time.to_f+2.00)).should == 'test/a_very_complex/fake_test.rb:2.00'
+      # log looking good ?
+      lines = File.read("tmp/parallel_runtime_test.log").split("\n").sort.map { |x| x.sub(/\d$/, "") }
+      expect(lines).to eq([
+        "test/0_test.rb:0.7",
+        "test/1_test.rb:0.7",
+      ])
+      FileUtils.rm("tmp/parallel_runtime_test.log")
     end
+  end
 
-    it "guesses subdirectory structure for rails test classes" do
-      with_rails_defined do
-        class ActionController
-          class TestCase
+  it "writes a correct log on minitest-5" do
+    skip if RUBY_PLATFORM == "java" # just too slow ...
+    use_temporary_directory do
+      # setup simple structure
+      FileUtils.mkdir "test"
+      2.times do |i|
+        File.write("test/#{i}_test.rb", <<-RUBY)
+          require 'minitest/autorun'
+          require 'parallel_tests/test/runtime_logger'
+
+          class Foo#{i} < Minitest::Test
+            def test_foo
+              sleep 0.5
+              assert true
+            end
           end
-        end
-        class FakeControllerTest < ActionController::TestCase
-        end
-        test = FakeControllerTest.new
-        time = Time.now
-        call(test, time, Time.at(time.to_f+2.00)).should == 'test/functional/fake_controller_test.rb:2.00'
+
+          class Bar#{i} < Minitest::Test
+            def test_foo
+              sleep 0.25111
+              assert true
+            end
+          end
+        RUBY
       end
+
+      run_tests
+
+      # log looking good ?
+      lines = File.read("tmp/parallel_runtime_test.log").split("\n").sort.map { |x| x.sub(/\d$/, "") }
+      expect(lines).to eq([
+        "test/0_test.rb:0.7",
+        "test/1_test.rb:0.7",
+      ])
     end
   end
 end
