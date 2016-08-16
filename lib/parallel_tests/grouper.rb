@@ -21,7 +21,6 @@ module ParallelTests
         end
 
         groups_to_fill = (options[:isolate] ? groups[1..-1] : groups)
-        group_features_by_size(items_to_group(items), groups_to_fill)
 
         # add all other files
         largest_first(items).each do |item, size|
